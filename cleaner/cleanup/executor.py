@@ -21,7 +21,9 @@ class CleanupExecutor:
         for row in file_rows:
             file_id = int(row["id"])
             path = Path(str(row["path"]))
-            protected, reason = self.safety_policy.is_protected(path)
+            mtime_raw = row.get("mtime")
+            mtime = float(mtime_raw) if mtime_raw is not None else None
+            protected, reason = self.safety_policy.validate_deletion(path, mtime=mtime)
 
             now = datetime.now().isoformat(timespec="seconds")
             if protected:

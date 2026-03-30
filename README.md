@@ -5,8 +5,11 @@ Drive Cleaner is a local-first Python desktop app for Windows that:
 - Stores scan results in a local SQLite database
 - Shows top disk usage with bar or pie charts
 - Lets you choose cleanup categories (temp, cache, duplicate downloads, junk)
+- Includes a polished desktop UI with status cards, progress bar, activity log, and scrollable results
 - Always previews cleanup candidates before deletion
 - Blocks protected system paths and critical file types
+- Blocks recently modified files and critical path keywords
+- Warns before large cleanup batches
 - Moves files to Recycle Bin by default
 
 ## Requirements
@@ -35,6 +38,9 @@ python run.py
 ## Safety Model
 - Protected roots include Windows, Program Files, ProgramData, Recovery, and system metadata folders.
 - Protected file types include exe, dll, sys, msi, drv.
+- Critical keyword paths (for example system32 and winsxs) are blocked.
+- Files modified within the recent protection window are blocked from cleanup.
+- Large cleanup sets require an additional confirmation gate.
 - Every cleanup operation requires preview first.
 - Deletion path uses Recycle Bin (not permanent delete).
 
