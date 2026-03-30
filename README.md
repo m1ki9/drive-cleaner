@@ -28,6 +28,25 @@ or
 
 python run.py
 
+## Desktop App (EXE)
+Build a Windows desktop executable:
+
+python -m pip install pyinstaller
+pyinstaller --noconfirm --clean --onefile --windowed --name DriveCleaner run.py
+
+The executable is generated at:
+
+dist/DriveCleaner.exe
+
+Copy it to Desktop:
+
+PowerShell:
+
+$desktop = [Environment]::GetFolderPath('Desktop')
+Copy-Item .\dist\DriveCleaner.exe (Join-Path $desktop 'DriveCleaner.exe') -Force
+
+Double-click DriveCleaner.exe on Desktop to launch.
+
 ## Project Modules
 - cleaner/scanning: scan engine, file classification, duplicate detection
 - cleaner/storage: SQLite schema and queries
