@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from threading import Event
 from typing import Callable
 
 from cleaner.models import FileRecord, FolderRecord, ScanResult
@@ -15,7 +16,12 @@ class DiskScanner:
     def __init__(self, safety_policy: SafetyPolicy) -> None:
         self.safety_policy = safety_policy
 
-    def scan(self, root: Path, progress_callback: ProgressCallback | None = None) -> ScanResult:
+    def scan(
+        self,
+        root: Path,
+        progress_callback: ProgressCallback | None = None,
+        cancel_event: Event | None = None,
+    ) -> ScanResult:
         root = root.resolve()
         folders_direct_sizes: dict[Path, int] = defaultdict(int)
         folders_direct_sizes[root] = 0
@@ -23,16 +29,28 @@ class DiskScanner:
         scanned_files = 0
         scanned_bytes = 0
 
+        visited_dirs: set[Path] = {root}
         stack = [root]
         while stack:
+            if cancel_event and cancel_event.is_set():
+                break
             current = stack.pop()
             try:
                 for path in current.iterdir():
                     try:
+                        if cancel_event and cancel_event.is_set():
+                            break
+
                         if path.is_dir():
+                            if path.is_symlink():
+                                continue
                             protected, _ = self.safety_policy.is_protected(path)
                             if protected:
                                 continue
+                            resolved_dir = path.resolve()
+                            if resolved_dir in visited_dirs:
+                                continue
+                            visited_dirs.add(resolved_dir)
                             folders_direct_sizes[path] += 0
                             stack.append(path)
                             continue

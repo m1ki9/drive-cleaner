@@ -7,6 +7,8 @@ DB_FILE = "cleaner_data.sqlite3"
 
 DEFAULT_SCAN_ROOT = Path("C:/")
 DEFAULT_TOP_FOLDER_LIMIT = 25
+RECENT_MODIFICATION_DAYS = 7
+LARGE_CLEANUP_WARNING_GB = 2.0
 
 CATEGORY_TEMP = "temp"
 CATEGORY_CACHE = "cache"
@@ -38,6 +40,14 @@ PROTECTED_EXTENSIONS = {
     ".exe",
     ".msi",
     ".drv",
+}
+
+PROTECTED_KEYWORDS = {
+    "system32",
+    "winsxs",
+    "driverstore",
+    "boot",
+    "efi",
 }
 
 TEMP_SEGMENTS = {

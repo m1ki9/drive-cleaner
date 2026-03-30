@@ -144,9 +144,11 @@ class ScanDatabase:
         return rows
 
     def files_for_categories(self, session_id: int, categories: list[str]) -> list[sqlite3.Row]:
+        if not categories:
+            return []
         placeholders = ",".join("?" for _ in categories)
         query = (
-            "SELECT id, path, size, category, is_protected "
+            "SELECT id, path, size, mtime, category, is_protected "
             "FROM files WHERE session_id = ? AND deleted = 0 AND category IN (" + placeholders + ")"
         )
         with self._connect() as conn:
