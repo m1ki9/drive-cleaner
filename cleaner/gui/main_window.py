@@ -87,8 +87,10 @@ class CleanerApp(tk.Tk):
         self.cancel_button = ttk.Button(controls, text="Cancel Scan", command=self.cancel_scan, state=tk.DISABLED)
         self.cancel_button.pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(controls, text="Load Latest", command=self.load_latest_results).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(controls, text="Preview Cleanup", command=self.preview_cleanup).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(controls, text="Delete Selected", command=self.execute_cleanup).pack(side=tk.LEFT)
+        ttk.Button(controls, text="Preview Category Cleanup", command=self.preview_cleanup).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(controls, text="Delete Category Files", command=self.execute_cleanup).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(controls, text="Preview Selected Folders", command=self.preview_selected_folders).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(controls, text="Delete Selected Folders", command=self.delete_selected_folders).pack(side=tk.LEFT)
 
         ttk.Radiobutton(controls, text="Bar", variable=self.chart_type, value="bar", command=self.refresh_chart).pack(side=tk.RIGHT, padx=4)
         ttk.Radiobutton(controls, text="Pie", variable=self.chart_type, value="pie", command=self.refresh_chart).pack(side=tk.RIGHT, padx=4)
@@ -113,7 +115,7 @@ class CleanerApp(tk.Tk):
         tree_wrapper = ttk.Frame(left)
         tree_wrapper.pack(fill=tk.BOTH, expand=True)
 
-        self.folder_tree = ttk.Treeview(tree_wrapper, columns=("path", "size_gb"), show="headings", height=22)
+        self.folder_tree = ttk.Treeview(tree_wrapper, columns=("path", "size_gb"), show="headings", height=22, selectmode="extended")
         self.folder_tree.heading("path", text="Folder")
         self.folder_tree.column("path", width=580, anchor=tk.W)
         self.folder_tree.heading("size_gb", text="Size (GB)")
@@ -243,6 +245,15 @@ class CleanerApp(tk.Tk):
     def _selected_cleanup_categories(self) -> list[str]:
         return [name for name, variable in self.selected_categories.items() if variable.get()]
 
+    def _selected_folder_paths(self) -> list[str]:
+        selected_items = self.folder_tree.selection()
+        selected_paths: list[str] = []
+        for item in selected_items:
+            values = self.folder_tree.item(item, "values")
+            if values:
+                selected_paths.append(str(values[0]))
+        return selected_paths
+
     def _candidate_cleanup_rows(self) -> list[object]:
         if self.current_session_id is None:
             return []
@@ -253,59 +264,9 @@ class CleanerApp(tk.Tk):
 
         return self.db.files_for_categories(self.current_session_id, categories)
 
-    def preview_cleanup(self) -> None:
-        rows = self._candidate_cleanup_rows()
-        if not rows:
-            messagebox.showinfo("Preview", "No files found for selected categories.")
-            return
-
-        preview_input = [
-            {
-                "path": str(row["path"]),
-                "size": int(row["size"]),
-                "mtime": float(row["mtime"]),
-            }
-            for row in rows
-        ]
-        preview = build_preview(preview_input, self.safety_policy)
-
-        total_bytes = sum(int(row["size"]) for row in rows)
-
-        lines = [
-            "Cleanup Preview",
-            "",
-            f"Selected files: {len(rows):,}",
-            f"Allowed: {preview['allowed_count']:,}",
-            f"Blocked: {preview['blocked_count']:,}",
-            f"Total size: {total_bytes / (1024**3):.2f} GB",
-            f"Allowed size: {preview['allowed_size'] / (1024**3):.2f} GB",
-            f"Blocked size: {preview['blocked_size'] / (1024**3):.2f} GB",
-            "",
-            "Blocked examples:",
-        ]
-        blocked = list(preview["blocked"])[:10]
-        if not blocked:
-            lines.append("None")
-        else:
-            for blocked_path, reason in blocked:
-                lines.append(f"- {blocked_path} | {reason}")
-
-        messagebox.showinfo("Preview", "\n".join(lines))
-        self._append_log(
-            f"Previewed cleanup set: allowed={preview['allowed_count']}, blocked={preview['blocked_count']}"
-        )
-
-    def execute_cleanup(self) -> None:
-        if self.current_session_id is None:
-            messagebox.showinfo("Cleanup", "Load or run a scan session first.")
-            return
-
-        rows = self._candidate_cleanup_rows()
-        if not rows:
-            messagebox.showinfo("Cleanup", "No files found for selected categories.")
-            return
-
-        preview_input = [
+    @staticmethod
+    def _rows_to_preview_input(rows: list[object]) -> list[dict[str, object]]:
+        return [
             {
                 "id": int(row["id"]),
                 "path": str(row["path"]),
@@ -314,10 +275,43 @@ class CleanerApp(tk.Tk):
             }
             for row in rows
         ]
-        preview = build_preview(preview_input, self.safety_policy)
+
+    def _show_preview_summary(self, title: str, rows: list[object], preview: dict[str, object], extra_lines: list[str] | None = None) -> None:
+        total_bytes = sum(int(row["size"]) for row in rows)
+        lines = [
+            title,
+            "",
+            f"Selected files: {len(rows):,}",
+            f"Allowed: {preview['allowed_count']:,}",
+            f"Blocked: {preview['blocked_count']:,}",
+            f"Total size: {total_bytes / (1024**3):.2f} GB",
+            f"Allowed size: {preview['allowed_size'] / (1024**3):.2f} GB",
+            f"Blocked size: {preview['blocked_size'] / (1024**3):.2f} GB",
+        ]
+
+        if extra_lines:
+            lines.append("")
+            lines.extend(extra_lines)
+
+        lines.append("")
+        lines.append("Blocked examples:")
+        blocked = list(preview["blocked"])[:10]
+        if not blocked:
+            lines.append("None")
+        else:
+            for blocked_path, reason in blocked:
+                lines.append(f"- {blocked_path} | {reason}")
+
+        messagebox.showinfo("Preview", "\n".join(lines))
+
+    def _execute_previewed_cleanup(self, rows: list[object], preview: dict[str, object], scope_label: str) -> None:
+        if self.current_session_id is None:
+            messagebox.showinfo("Cleanup", "Load or run a scan session first.")
+            return
+
         if preview["allowed_count"] == 0:
             messagebox.showinfo("Cleanup", "All selected files are blocked by safety policy.")
-            self._append_log("Cleanup blocked: no eligible files")
+            self._append_log(f"{scope_label} cleanup blocked: no eligible files")
             return
 
         allowed_gb = preview["allowed_size"] / (1024**3)
@@ -327,15 +321,15 @@ class CleanerApp(tk.Tk):
                 f"You are about to move {allowed_gb:.2f} GB to Recycle Bin. Continue?",
             )
             if not warning_ok:
-                self._append_log("Large cleanup warning declined")
+                self._append_log(f"{scope_label} cleanup warning declined")
                 return
 
         confirm = messagebox.askyesno(
             "Confirm Cleanup",
-            "Only previewed and non-protected files will be moved to Recycle Bin. Continue?",
+            f"Delete {scope_label} selection? Only previewed and non-protected files will be moved to Recycle Bin.",
         )
         if not confirm:
-            self._append_log("Cleanup cancelled by user")
+            self._append_log(f"{scope_label} cleanup cancelled by user")
             return
 
         allowed_set = {str(path) for path in preview["allowed"]}
@@ -355,6 +349,7 @@ class CleanerApp(tk.Tk):
         deleted_size = sum(int(row["size"]) for row in allowed_rows if int(row["id"]) in deleted_id_set)
 
         lines = [
+            f"Scope: {scope_label}",
             f"Deleted files: {len(deleted_ids)}",
             f"Freed space: {deleted_size / (1024**3):.2f} GB",
             "",
@@ -375,9 +370,91 @@ class CleanerApp(tk.Tk):
 
         messagebox.showinfo("Cleanup Result", "\n".join(lines))
         self._append_log(
-            f"Cleanup completed: deleted={len(deleted_ids)}, freed={deleted_size / (1024**3):.2f} GB, notes={len(messages)}"
+            f"{scope_label} cleanup completed: deleted={len(deleted_ids)}, freed={deleted_size / (1024**3):.2f} GB, notes={len(messages)}"
         )
         self.load_latest_results()
+
+    def preview_cleanup(self) -> None:
+        rows = self._candidate_cleanup_rows()
+        if not rows:
+            messagebox.showinfo("Preview", "No files found for selected categories.")
+            return
+
+        preview_input = self._rows_to_preview_input(rows)
+        preview = build_preview(preview_input, self.safety_policy)
+        self._show_preview_summary("Category Cleanup Preview", rows, preview)
+        self._append_log(
+            f"Previewed cleanup set: allowed={preview['allowed_count']}, blocked={preview['blocked_count']}"
+        )
+
+    def execute_cleanup(self) -> None:
+        rows = self._candidate_cleanup_rows()
+        if not rows:
+            messagebox.showinfo("Cleanup", "No files found for selected categories.")
+            return
+
+        preview_input = self._rows_to_preview_input(rows)
+        preview = build_preview(preview_input, self.safety_policy)
+        self._execute_previewed_cleanup(rows, preview, "Category")
+
+    def preview_selected_folders(self) -> None:
+        if self.current_session_id is None:
+            messagebox.showinfo("Preview", "Load or run a scan session first.")
+            return
+
+        folders = self._selected_folder_paths()
+        if not folders:
+            messagebox.showinfo("Preview", "Select one or more folders from the table first.")
+            return
+
+        rows = self.db.files_for_folders(self.current_session_id, folders)
+        if not rows:
+            messagebox.showinfo("Preview", "No files found under selected folders.")
+            return
+
+        preview_input = self._rows_to_preview_input(rows)
+        preview = build_preview(preview_input, self.safety_policy)
+
+        selected_gb = 0.0
+        for folder_item in self.folder_tree.selection():
+            values = self.folder_tree.item(folder_item, "values")
+            if len(values) >= 2:
+                try:
+                    selected_gb += float(values[1])
+                except ValueError:
+                    continue
+
+        self._show_preview_summary(
+            "Selected Folder Cleanup Preview",
+            rows,
+            preview,
+            extra_lines=[
+                f"Selected folders: {len(folders)}",
+                f"Folder total shown in table: {selected_gb:.2f} GB",
+            ],
+        )
+        self._append_log(
+            f"Previewed selected folders: count={len(folders)}, allowed={preview['allowed_count']}, blocked={preview['blocked_count']}"
+        )
+
+    def delete_selected_folders(self) -> None:
+        if self.current_session_id is None:
+            messagebox.showinfo("Cleanup", "Load or run a scan session first.")
+            return
+
+        folders = self._selected_folder_paths()
+        if not folders:
+            messagebox.showinfo("Cleanup", "Select one or more folders from the table first.")
+            return
+
+        rows = self.db.files_for_folders(self.current_session_id, folders)
+        if not rows:
+            messagebox.showinfo("Cleanup", "No files found under selected folders.")
+            return
+
+        preview_input = self._rows_to_preview_input(rows)
+        preview = build_preview(preview_input, self.safety_policy)
+        self._execute_previewed_cleanup(rows, preview, "Selected folders")
 
 
 def run_app() -> None:

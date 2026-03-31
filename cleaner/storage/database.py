@@ -155,6 +155,27 @@ class ScanDatabase:
             rows = conn.execute(query, [session_id, *categories]).fetchall()
         return rows
 
+    def files_for_folders(self, session_id: int, folders: list[str]) -> list[sqlite3.Row]:
+        if not folders:
+            return []
+
+        normalized_folders = [str(Path(folder)) for folder in folders]
+        conditions = []
+        params: list[object] = [session_id]
+        for folder in normalized_folders:
+            conditions.append("(path = ? OR path LIKE ?)")
+            params.append(folder)
+            params.append(folder + "\\%")
+
+        query = (
+            "SELECT id, path, size, mtime, category, is_protected "
+            "FROM files WHERE session_id = ? AND deleted = 0 AND (" + " OR ".join(conditions) + ")"
+        )
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return rows
+
     def duplicate_download_rows(self, session_id: int) -> list[sqlite3.Row]:
         with self._connect() as conn:
             rows = conn.execute(
