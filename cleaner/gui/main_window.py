@@ -110,17 +110,18 @@ class CleanerApp(tk.Tk):
         content.add(left, weight=1)
         content.add(right, weight=1)
 
-        self.folder_tree = ttk.Treeview(left, columns=("path", "size_gb"), show="headings", height=22)
+        tree_wrapper = ttk.Frame(left)
+        tree_wrapper.pack(fill=tk.BOTH, expand=True)
+
+        self.folder_tree = ttk.Treeview(tree_wrapper, columns=("path", "size_gb"), show="headings", height=22)
         self.folder_tree.heading("path", text="Folder")
         self.folder_tree.column("path", width=580, anchor=tk.W)
         self.folder_tree.heading("size_gb", text="Size (GB)")
         self.folder_tree.column("size_gb", width=120, minwidth=100, anchor=tk.E)
 
-        tree_wrapper = ttk.Frame(left)
-        tree_wrapper.pack(fill=tk.BOTH, expand=True)
         tree_scrollbar = ttk.Scrollbar(tree_wrapper, orient=tk.VERTICAL, command=self.folder_tree.yview)
         self.folder_tree.configure(yscrollcommand=tree_scrollbar.set)
-        self.folder_tree.pack(in_=tree_wrapper, side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.folder_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         self.chart_host = ttk.Frame(right)
@@ -342,6 +343,7 @@ class CleanerApp(tk.Tk):
             {
                 "id": row["id"],
                 "path": row["path"],
+                "size": int(row["size"]),
                 "mtime": row["mtime"],
             }
             for row in rows
@@ -349,12 +351,32 @@ class CleanerApp(tk.Tk):
         ]
 
         deleted_ids, messages = self.cleaner.delete_to_recycle_bin(self.current_session_id, allowed_rows)
-        message = f"Deleted {len(deleted_ids)} files to Recycle Bin."
-        if messages:
-            message += "\n\nNotes:\n" + "\n".join(messages[:10])
+        deleted_id_set = set(deleted_ids)
+        deleted_size = sum(int(row["size"]) for row in allowed_rows if int(row["id"]) in deleted_id_set)
 
-        messagebox.showinfo("Cleanup Result", message)
-        self._append_log(f"Cleanup completed: deleted={len(deleted_ids)}, notes={len(messages)}")
+        lines = [
+            f"Deleted files: {len(deleted_ids)}",
+            f"Freed space: {deleted_size / (1024**3):.2f} GB",
+            "",
+            "Deleted examples:",
+        ]
+        deleted_paths = [str(row["path"]) for row in allowed_rows if int(row["id"]) in deleted_id_set]
+        if deleted_paths:
+            for item in deleted_paths[:10]:
+                lines.append(f"- {item}")
+        else:
+            lines.append("None")
+
+        if messages:
+            lines.append("")
+            lines.append("Notes:")
+            for note in messages[:10]:
+                lines.append(f"- {note}")
+
+        messagebox.showinfo("Cleanup Result", "\n".join(lines))
+        self._append_log(
+            f"Cleanup completed: deleted={len(deleted_ids)}, freed={deleted_size / (1024**3):.2f} GB, notes={len(messages)}"
+        )
         self.load_latest_results()
 
 
